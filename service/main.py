@@ -1,3 +1,5 @@
+# пример 1
+
 # from fastapi import FastAPI, HTTPException
 # import uvicorn
 # from pydantic import BaseModel
@@ -59,6 +61,8 @@
 #     uvicorn.run("main:app", reload=True)
  
 #------------------------------------------------------------------
+# пример 2
+
 # from fastapi import FastAPI, Depends
 # from typing import Annotated
 # from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
@@ -128,7 +132,7 @@
 
 
 #--------------------------------------------------
-
+# пример 3
 
 # from fastapi import FastAPI, File, UploadFile
 # from fastapi.responses import StreamingResponse, FileResponse
@@ -155,3 +159,47 @@
 # @app.get("/files/filename")
 # async def get_file(file_name: str):
 #     return FileResponse(path=file_name, filename=file_name)
+
+#--------------------------------------------------
+
+from typing import AsyncGenerator, List, Optional
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, Depends, HTTPException, status
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import String, Integer, select, delete
+from sqlalchemy.ext.asyncio import (
+    create_async_engine,
+    AsyncSession,
+    async_sessionmaker,
+    AsyncEngine
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+# Database setup
+BASE_DIR = Path(__file__).parent
+DATABASE_URL = f"sqlite+aiosqlite:///{BASE_DIR}/test.db"
+engine: AsyncEngine = create_async_engine(
+    DATABASE_URL,
+    echo=True,
+    future=True
+)
+
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False
+)
+
+# sqlalchemy модель
+
+class Base(DeclarativeBase):
+    """
+    Базовый класс для всех моделей SQLAlchemy
+    """
+    pass
+
