@@ -209,3 +209,9 @@ __marimo__/
 *.pkl
 models/*.pkl
 
+
+# ML artifacts
+*.pkl
+**/*.pkl
+/models/
+notebooks/models/
