@@ -1,121 +1,152 @@
-from typing import AsyncGenerator, List, Optional
-from contextlib import asynccontextmanager
+from __future__ import annotations
+
+import pickle
 from pathlib import Path
-
-from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, status
-from fastapi.responses import JSONResponse
-
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import DateTime, String, Integer, select, delete
-from sqlalchemy.ext.asyncio import (
-    create_async_engine,
-    AsyncSession,
-    async_sessionmaker,
-    AsyncEngine
-)
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from datetime import datetime, timezone
 from typing import Any
-import json
+
+import pandas as pd
+from fastapi import FastAPI, Body, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 app = FastAPI(title="Search_for_anomalies_in_data_FastAPI_Service")
 
-
-# Создание асинхронного движка и сессии SQLAlchemy 
-
-# BASE_DIR = Path(__file__).parent
-# DATABASE_URL = f"sqlite+aiosqlite:///{BASE_DIR}/test.db"
-# engine: AsyncEngine = create_async_engine(
-#     DATABASE_URL,
-#     echo=True,
-#     future=True
-# )
-
-# AsyncSessionLocal = async_sessionmaker(
-#     engine,
-#     class_=AsyncSession,
-#     expire_on_commit=False,
-#     autocommit=False,
-#     autoflush=False
-# )
-
-# sqlalchemy модель
-
-# class Base(DeclarativeBase):
-#     """
-#     Базовый класс для всех моделей SQLAlchemy
-#     """
-#     pass
-
-# class Log_Requests(Base):
-#     """
-#     Реализация запросов /stats и /history подразумевает наличие модели (SQLAlchemy) для 
-#     хранения логов
-#     """
-
-#     __tablename__ = 'Log_Requests'
-
-#     id: Mapped[int] = mapped_column(
-#         Integer,
-#         primary_key=True, 
-#         autoincrement=True
-#         )
-
-#     ts: Mapped[str] = mapped_column(
-#         DateTime(timezone=True),
-#         nullable=False
-#         )
-
-
-# Надо будет ещё сделать Pydantic валидацию 
+FEATURES = [
+    "amount",
+    "oldbalanceOrg",
+    "newbalanceOrig",
+    "type_CASH_OUT",
+    "type_DEBIT",
+    "type_PAYMENT",
+    "type_TRANSFER",
+    "Card Type_Gold",
+    "Card Type_Mass",
+    "Card Type_Platinum",
+    "Card Type_Signature",
+    "Card Type_Silver",
+    "Exp Type_Entertainment",
+    "Exp Type_Food",
+    "Exp Type_Fuel",
+    "Exp Type_Grocery",
+    "Exp Type_Health_Fitness",
+    "Exp Type_Home",
+    "Exp Type_Personal_Care",
+    "Exp Type_Travel",
+    "Gender_M",
+    "City_TargetEncoded",
+]
 
 
 class ForwardIn(BaseModel):
-    features: dict[str, Any] = Field(..., description="One transaction features")
+    features: dict[str, Any] = Field(..., description="One transaction features (preprocessed)")
 
-# модель предсказания
-# def prediction(features: dict[str, Any]) -> dict[str, Any]:
+
+# --- превращаем стандартный 422 (ошибка валидации) в 400 'bad request'
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(status_code=400, content="bad request")
+
+
+_MODEL = None
+
+
+def _load_model():
+    global _MODEL
+    if _MODEL is not None:
+        return _MODEL
+
+    model_path = Path(__file__).resolve().parents[1] / "models" / "random_forest_model.pkl"
+    if not model_path.exists():
+        raise FileNotFoundError(f"Model file not found: {model_path}")
+
+    with open(model_path, "rb") as f:
+        _MODEL = pickle.load(f)
+
+    return _MODEL
+
+
+def _parse_bool_header(val: str | None, default: bool) -> bool:
+    if val is None:
+        return default
+    v = val.strip().lower()
+    if v in ("1", "true", "yes", "y", "on"):
+        return True
+    if v in ("0", "false", "no", "n", "off"):
+        return False
+    return default
+
+
+def _parse_threshold(val: str | None, default: float = 0.5) -> float:
+    if val is None:
+        return default
+    try:
+        t = float(val)
+    except Exception:
+        return default
+    if t < 0.0:
+        return 0.0
+    if t > 1.0:
+        return 1.0
+    return t
+
+
+def prediction(features: dict[str, Any], threshold: float) -> dict[str, Any]:
     """
-    Пока оставляю так, реальнгую модель подключу позже
+    ValueError -> неверный формат (400)
+    Other Exception -> модель не смогла (403)
     """
+    model = _load_model()
+
+    expected = set(FEATURES)
+    keys = set(features.keys())
+
+    if keys != expected:
+        raise ValueError("wrong feature set")
+
+    row = {}
+    for name in FEATURES:
+        row[name] = float(features[name])
+
+    X = pd.DataFrame([row], columns=FEATURES)
+
+    if hasattr(model, "predict_proba"):
+        proba_1 = float(model.predict_proba(X)[0][1])  # class=1 => fraud
+        is_anomaly = bool(proba_1 >= threshold)
+        return {"is_anomaly": is_anomaly, "proba": proba_1}
+
+    pred = int(model.predict(X)[0])  # 1 => fraud
+    return {"is_anomaly": bool(pred), "proba": None}
+
 
 @app.post("/forward")
-async def forward(request: Request, image: Optional[UploadFile] = None):
+async def forward(
+    inp: ForwardIn = Body(...),
+    request: Request = None,
+):
     """
-    - 400 bad request при неверном формате инпута
-    - 403 когда модель не смогла обработать данные (предобработка сломалась)
-    - Если всё успешно то возвращаю JSON и 200
+    - неверный формат -> 400 'bad request'
+    - модель не смогла -> 403 'модель не смогла обработать данные'
+    - успех -> 200 JSON
     """
+    # headers: дополнительные параметры
+    threshold = _parse_threshold(request.headers.get("x-threshold"), default=0.5)
+    return_proba = _parse_bool_header(request.headers.get("x-return-proba"), default=True)
 
-    ct = (request.headers.get("content-type") or "").lower()
-
-    # Если всё ок
-    if "application/json" in ct:
-        raw = await request.body()
-
-        # парсинг
-        try:
-            payload = json.loads(raw.decode("utf-8"))
-        except Exception:
-            return JSONResponse(status_code=400, content="bad request")
-
-        try:
-            inp = ForwardIn(**payload)
-        except Exception:
-            return JSONResponse(status_code=400, content="bad request")
-
-        # Вызов модели
-        try:
-            result = prediction(inp.features)  # модель надо будет подключиь из пикла
-        except Exception:
-            return JSONResponse(status_code=403, content="модель не смогла обработать данные")
-
-        return JSONResponse(status_code=200, content=result)
-
-    # у нас имаджес в проекте нет, так что просто предусмотрм это как 400
-    if "multipart/form-data" in ct:
-        if image is None:
-            return JSONResponse(status_code=400, content="bad request")
+    try:
+        result = prediction(inp.features, threshold=threshold)
+    except ValueError:
         return JSONResponse(status_code=400, content="bad request")
+    except Exception:
+        return JSONResponse(status_code=403, content="модель не смогла обработать данные")
 
-    return JSONResponse(status_code=400, content="bad request")
+    if not return_proba:
+        result.pop("proba", None)
+
+    result["threshold"] = threshold
+    return JSONResponse(status_code=200, content=result)
+
+
+@app.get("/")
+async def root():
+    return {"ok": True, "docs": "/docs"}
