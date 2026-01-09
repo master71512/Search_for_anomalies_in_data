@@ -1,19 +1,27 @@
-**FastAPI ML service. Выполняет инференс обученной ML-модели для детектирования фрода**
+### **FastAPI ML service. Выполняет инференс обученной ML-модели для детектирования фрода**
+
 
 Модель: RandomForestClassifier
+
 Таргет: isFraud (fraud=1, not_fraud=0)
 
-**Запуск**
+#### **Запуск**
+
  - созать и активировать venv
  - pip install -r requirements.txt
  - заупстить Linear_model.ipynb. В конце наутбука находится ячейка сохраняющая модель в pkl 
  - uvicorn service.main:app --reload
 
-**API. POST /forward**
+#### **API. POST /forward**
 
-Вход > Content-Type: application/json > JSON с предобработанными признаками (как в X_train)
 
-**Пример JSONa**
+Вход >>> Content-Type: application/json >>> JSON с уже предобработанными признаками (как в X_train)
+
+
+
+**Пример JSONa**:
+
+```
 {
   "features": {
     "amount": 1234.56,
@@ -40,22 +48,28 @@
     "City_TargetEncoded": 0.42
   }
 }
+```
+
 
 В Headers указываются **X-Threshold** (порог перехода вероятности, 0.5 по дефолту) и **X-Return-Proba** (отобразить в ответе вероятности или нет)
 
 **Response 200**
+
+*Пример:*
+```
 {
   "is_anomaly": false,
   "proba": 0.19,
   "threshold": 0.5
 }
+```
 
 
-**Ошибки**
-400 > bad request (неверный формат)
+**Error 400** >>> bad request (неверный формат)
 
-403 > модель не смогла обработать данные
+**Error 403** >>> модель не смогла обработать данные
 
 **!!!Примечание!!!**
 
 Предобработка выполняется вне сервиса, ожидаются уже предобработанные признаки.
+
