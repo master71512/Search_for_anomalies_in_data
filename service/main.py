@@ -175,7 +175,7 @@ async def forward(
     x_return_proba: bool = Header(
         True,
         alias='X-Return-Proba',
-        description='Если false — поле proba не возвращается.',
+        description='Если false, то поле proba не возвращается.',
     ),
 ):
     ct = (request.headers.get('content-type') or '').lower()
