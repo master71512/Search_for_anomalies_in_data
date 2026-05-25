@@ -8,7 +8,9 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+/build/*
+!/build/Dockerfile
+!/build/init.sql
 develop-eggs/
 dist/
 downloads/
