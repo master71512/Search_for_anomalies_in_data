@@ -80,11 +80,7 @@ services:
     entrypoint: >
       bash -c "
       mc alias set minio http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
-      if ! mc ls minio | grep --quiet ${DEFAULT_BUCKET_NAME}; then
-        mc mb minio/${DEFAULT_BUCKET_NAME}
-      else
-        echo '${DEFAULT_BUCKET_NAME} already exists'
-      fi
+      mc mb --ignore-existing minio/${DEFAULT_BUCKET_NAME}
       "
     depends_on:
       minio:
