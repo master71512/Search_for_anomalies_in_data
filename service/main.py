@@ -1,7 +1,7 @@
 from __future__ import annotations
-import pickle
 from pathlib import Path
 from typing import Optional
+import mlflow.pyfunc
 import pandas as pd
 from fastapi import FastAPI, Body, Request, Header
 from fastapi.exceptions import RequestValidationError
@@ -110,18 +110,28 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 # загрузка модели
 _MODEL = None
-def _load_model():
+
+def load_model():
     global _MODEL
+
     if _MODEL is not None:
         return _MODEL
 
-    model_path = Path(__file__).resolve().parents[1]/'models'/'random_forest_model.pkl'
+    model_path = (
+        Path(__file__).resolve().parents[1]
+        / "data"
+        / "minio_data"
+        / "mlflow-bucket"
+        / "mlflow"
+        / "fe15dbe84f8f4ad48f24487999bec679"
+        / "artifacts"
+        / "model"
+    )
+
     if not model_path.exists():
-        raise FileNotFoundError(f'В директории {model_path} pkl файл с моделью не найден')
+        raise FileNotFoundError(f"CatBoost MLflow model not found: {model_path}")
 
-    with open(model_path, 'rb') as f:
-        _MODEL = pickle.load(f)
-
+    _MODEL = mlflow.pyfunc.load_model(str(model_path))
     return _MODEL
 
 def prediction(features: dict, threshold: float) -> dict:
@@ -129,7 +139,7 @@ def prediction(features: dict, threshold: float) -> dict:
     ValueError - 400, не подходящий формат
     Other Exception - 403, модель не сработала
     '''
-    model = _load_model()
+    model = load_model()
 
     if set(features.keys()) != set(FEATURES):
         raise ValueError('wrong feature set')
