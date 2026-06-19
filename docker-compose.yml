@@ -41,12 +41,38 @@ services:
     expose:
       - "5000"
     ports:
-      - "5050:5000"
+      - "0.0.0.0:${MLFLOW_PORT}:5000"
     networks:
       - internal
     volumes:
       # - mlflow-data:/mlflow
       - ./data/mlflow:/mlflow
+
+  backend-service:
+    build:
+      context: .
+      dockerfile: service/Dockerfile
+    container_name: fastapi_backend
+    env_file:
+      - ./.env
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow-service:5000
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    command: uvicorn main:app --host 0.0.0.0 --port ${BACKEND_PORT}
+    working_dir: /app/service
+    ports:
+      - "0.0.0.0:${BACKEND_PORT}:${BACKEND_PORT}"
+    networks:
+      - internal
+    volumes:
+      - ./service:/app/service
+      - ./data:/app/data
+      - ./.runtime:/app/.runtime
+    depends_on:
+      - mlflow-service
+      - minio
 
   minio:
     image: quay.io/minio/minio
