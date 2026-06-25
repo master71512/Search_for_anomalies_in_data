@@ -7,8 +7,13 @@ __pycache__/
 .pkl
 
 # Distribution / packaging
+data/mlflow/*
+data/mlflow_data/*
+data/minio_data/*
 .Python
-build/
+/build/*
+!/build/Dockerfile
+!/build/init.sql
 develop-eggs/
 dist/
 downloads/
@@ -215,3 +220,5 @@ models/*.pkl
 **/*.pkl
 /models/
 notebooks/models/
+.runtime/
+mlruns/
